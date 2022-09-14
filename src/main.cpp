@@ -1,10 +1,21 @@
 #include <Arduino.h>
 #include <SPI.h>
 #include <Wire.h>
-#include <max6675.h>
 #include <LiquidCrystal_I2C.h>
 #include <Adafruit_ADS1X15.h>
 #include <Adafruit_MCP4725.h>
+
+// #define PIN_SCL 5
+// #define PIN_SDA 4
+// #define PIN_A 2
+// #define PIN_B 1
+// #define PIN_SW 0
+#define PIN_SCL A5
+#define PIN_SDA A4
+#define PIN_A 3
+#define PIN_B 2
+#define PIN_SW 4
+
 
 LiquidCrystal_I2C lcd(0x27,20,4);  // Set the LCD address to 0x27 for a 16 chars and 2 line display
 Adafruit_ADS1115 ads;
@@ -14,15 +25,9 @@ float vin;
 float ain1;
 uint16_t dacv = -1;
 
-
 int switchState = HIGH;
 volatile int count = 500;
 volatile int last_count = 0;
-
-int thermoCS = 5;
-int thermoCLK = 6;
-int thermoDO = 7;
-MAX6675 thermocouple(thermoCLK, thermoCS, thermoDO);
 
 // Make some custom characters
 uint8_t degree[8]  = {140,146,146,140,128,128,128,128};
@@ -96,11 +101,11 @@ void setup() {
     while (1);
   }
 
-  pinMode(2, INPUT);
-  pinMode(3, INPUT);
-  pinMode(4, INPUT_PULLUP);
-  attachInterrupt(digitalPinToInterrupt(2), REUpdateISR, CHANGE);
-  attachInterrupt(digitalPinToInterrupt(3), REUpdateISR, CHANGE);
+  pinMode(PIN_A, INPUT);
+  pinMode(PIN_A, INPUT);
+  pinMode(PIN_SW, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(PIN_A), REUpdateISR, CHANGE);
+  attachInterrupt(digitalPinToInterrupt(PIN_B), REUpdateISR, CHANGE);
   rfunc = rotaryHandler;
 
   // Display the splash screen for 4 seconds, or until the rotary
@@ -153,19 +158,8 @@ void loop(void) {
       }
     }
 
-    last_update = millis();
-    lcd.setCursor(0,2);
-    lcd.print(thermocouple.readCelsius());
-    lcd.write((byte)0);
-    lcd.print("C");
-
-    lcd.setCursor(0,3);
-    lcd.print(thermocouple.readFahrenheit());
-    lcd.write((byte)0);
-    lcd.print("F");
-
     float celsius=kelvin - 273.15;
-    lcd.setCursor(9,3);
+    lcd.setCursor(0,3);
     lcd.print(celsius);
     lcd.write((byte)0);
     lcd.print("C");
@@ -179,7 +173,7 @@ void loop(void) {
   }
 
   if (last_count != count) {
-    lcd.setCursor(17,0);
+    lcd.setCursor(0,2);
     char buffer[3];
     sprintf(buffer, "%3d", count);
     lcd.print(buffer);
