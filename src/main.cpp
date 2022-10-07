@@ -16,13 +16,13 @@
 #define SET_VOLTAGE 1
 #define SET_RESISTANCE 2
 #define SET POWER 3
-float set[4];
 
-String names[] = {"Current", "Voltage", "Resistance", "Power"};
+int set[] = {1234,1625,600,10000};
+String names[] = {"Current", "Voltage", "Power", "Resistance"};
 
 LiquidCrystal_I2C lcd(0x27,20,4);  // Set the LCD address to 0x27 for a 16 chars and 2 line display
 Adafruit_ADS1115 ads;
-// Adafruit_MCP4725 dac;
+Adafruit_MCP4725 dac;
 
 float vin;
 float vload;
@@ -89,11 +89,11 @@ void setup() {
   // *********************
   Serial.begin(BAUD_RATE);
 
-  // dac.begin(0x60);
-  // dac.setVoltage(0, false);
+  dac.begin(0x60);
+  dac.setVoltage(0, false);
 
-  // Print a message to the LCD.
-  lcd.init();                      // initialize the lcd 
+  // initialize the lcd 
+  lcd.init();
   lcd.createChar(0, degree);
   lcd.backlight();
 
@@ -127,7 +127,6 @@ void setup() {
   pinMode(PIN_SW, INPUT_PULLUP);
   digitalWrite(PIN_RELAY, LOW);
   pinMode(PIN_RELAY, OUTPUT);
-//  rfunc = menuHandler;
 
   // Display the splash screen for 4 seconds, or until the rotary
   // encoder is depressed
@@ -221,32 +220,4 @@ void loop(void) {
 //     }
 //     last_channel = channel;
 //   }
-
-  // byte rotary = PIN_PORT & AB_BYTE;
-  // if (last_rotary != rotary) {
-  //   last_rotary = rotary;
-  //   DecodeRotaryEncoder(rotary);
-  // }
-  // switchState = PIN_PORT & SW_BYTE ? HIGH : LOW;
-  // if (last_switchState != switchState) {
-  //   last_switchState = switchState;
-  //   if (switchState == HIGH) {
-  //     fanOn = !fanOn;
-  //     analogWrite(PIN_PWM, fanOn ? count : 0);
-  //   }
-  //   //lcd.setCursor(0,1);
-  //   //lcd.print(switchState == LOW ? "Down" : "Up  ");
-  //   lcd.setCursor(9,3);
-  //   lcd.print(fanOn ? "On " : "Off");
-  // }
-  // if (last_count != count) {
-  //   lcd.setCursor(0,2);
-  //   char buffer[3];
-  //   sprintf(buffer, "%3d", count);
-  //   lcd.print(buffer);
-  //   last_count = count;
-  //   if (fanOn) {
-  //     analogWrite(PIN_PWM, count);
-  //   }
-  // }
 }

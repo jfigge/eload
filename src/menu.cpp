@@ -6,8 +6,9 @@ typedef void (*RotataryHandler) (const int rotation);
 extern void DecodeRotaryEncoder(byte i);
 extern int DecodeSwitch(byte switchState);
 extern RotataryHandler rfunc;
-extern float set[4];
+extern int set[];
 extern String names[4];
+int pwr[5] = {1,10,100,1000,10000};
 
 #define BTN_UP 0
 #define BTN_DOWN 1
@@ -28,8 +29,10 @@ void settingsMenuHandler(const int rotation);
 
 int numberInputId = 0;
 int lastNumberInputId = 0;
-int numberInputDigitId = 0;
-float numberInput(String name, float value);
+int numberIncrement;
+int numberValue;
+int printValue(int index, int value, int row, int col);
+int numberInput(int index);
 
 void mainMenuHandler(const int rotation) {
   if (rotation > 0) {
@@ -100,15 +103,16 @@ void settingsMenuHandler(const int rotation) {
     lcd.print(">");
     lastSettingsMenuId = settingsMenuId;
   }
-};
+}
 
 void settingsMenu() {
 start:
   rfunc = settingsMenuHandler;
   lcd.clear();
-  for (int i = -0; i < 4; i++) {
+  for (int i = 0; i < 4; i++) {
     lcd.setCursor(0,i);
     lcd.print((i != settingsMenuId ? " " : ">") + names[i]);
+    printValue(i, set[i], 13, i);
   }
 
 
@@ -117,7 +121,7 @@ start:
     DecodeRotaryEncoder(PIN_PORT & AB_BYTE);
     switch (DecodeSwitch(PIN_PORT & SW_BYTE)) {
       case BTN_SHORT_RELEASE:
-        set[lastSettingsMenuId] = numberInput(names[lastSettingsMenuId], set[lastSettingsMenuId]);
+        set[lastSettingsMenuId] = numberInput(settingsMenuId);
         goto start;
 
       case BTN_LONG_HOLD:
@@ -128,18 +132,81 @@ start:
   }
 }
 
-float numberInput(String name, float value) {
-    lcd.clear();
-    lcd.setCursor(0,0);
-    lcd.print("Set " + name);
-    lcd.setCursor(0,1);
-    lcd.print(value);
-
-    while(true) {
-      switch (DecodeSwitch(PIN_PORT & SW_BYTE)) {
-        case BTN_LONG_HOLD:
-          return value;
-      }
+void numberInputHandler(const int rotation) {
+  if (rotation > 0) {
+    numberInputId++;
+    numberValue += numberIncrement;
+    if (numberInputId >= 10) {
+      numberInputId = 0;
     }
-    return value;
+  } else if (rotation < 0) {
+    numberInputId--;
+    numberValue -= numberIncrement;
+    if (numberInputId <= 0) {
+      numberInputId = 9;
+    }
+  }
+}
+
+int printValue(int index, int value, int row, int col) {
+  char buf[10];  
+  switch (index) {
+  case 0:
+    sprintf( buf, "%01d.%03dA", value / 1000, value % 1000);
+    break;
+  case 1:
+    sprintf( buf, "%02d.%02dV", value / 100, value % 100);
+    break;
+  case 2:
+    sprintf( buf, "%03d.%01dW", value / 10, value % 10);
+    break;
+  case 3:
+    sprintf( buf, "%05dR", value);
+    break;
+  }
+  lcd.setCursor(row,col);
+  lcd.print(buf);
+}
+
+int numberInput(int index) {
+  int digitId;
+  int digits = 4;
+
+  rfunc = numberInputHandler;
+  lcd.clear();
+  lcd.setCursor(0,0);
+  lcd.print("Set " + names[index]);
+  
+  numberValue = set[index];
+  digitId = index;
+  numberIncrement = pwr[digits - 1 - digitId];
+  numberInputId = int(numberValue / pwr[digits - 1 - digitId]) % 10;
+  lastNumberInputId = numberInputId;
+
+  printValue(index, numberValue, 1, 1);
+  lcd.setCursor(digitId + (digitId <= index ? 1 : 2), 1);
+  lcd.cursor();
+
+  while(DecodeSwitch(PIN_PORT & SW_BYTE) != 0);
+  while(true) {
+    DecodeRotaryEncoder(PIN_PORT & AB_BYTE);
+    if (lastNumberInputId != numberInputId) {
+      lastNumberInputId = numberInputId;
+      printValue(index, numberValue, 1, 1);
+      lcd.setCursor(digitId + (digitId <= index ? 1 : 2), 1);
+    }
+    switch (DecodeSwitch(PIN_PORT & SW_BYTE)) {
+      case BTN_DOWN:
+        digitId = (digitId + 1) % digits;
+        lcd.setCursor(digitId + (digitId <= index ? 1 : 2), 1);
+        numberIncrement = pwr[digits - 1 - digitId];
+        numberInputId = int(numberValue / numberIncrement) % 10;
+        lastNumberInputId = numberInputId;
+        break;
+      case BTN_LONG_HOLD:
+        lcd.noCursor();
+        return numberValue;
+    }
+  }
+  return numberValue;
 }
