@@ -12,26 +12,29 @@
 #define BTN_SHORT_RELEASE 4
 #define BTN_LONG_RELEASE 5
 
-#define SET_CURRENT 0
-#define SET_VOLTAGE 1
-#define SET_RESISTANCE 2
-#define SET POWER 3
+#define VIN_VOLTAGE 0
+#define VIN_CELCIUS 1
+#define VIN_VLOAD 2
+#define VIN_ALOAD 3
 
-int set[] = {1234,1625,600,1000};
-String names[] = {"Current", "Voltage", "Power", "Resistance"};
-
-LiquidCrystal_I2C lcd(0x27,20,4);  // Set the LCD address to 0x27 for a 16 chars and 2 line display
-Adafruit_ADS1115 ads;
-Adafruit_MCP4725 dac;
-
-float vin;
-float celcius;
-float vLoad;
-float aLoad;
+int set[4] = {1234,1625,600,1000};
+float vin[4] = {0,0,0,0};
+const int pwr[5] = {1,10,100,1000,10000};
+int numberInputId = 0;
+int lastNumberInputId = 0;
+int numberValue;
+int numberIncrement;
+int runMenuId = 1;
+int lastRunMenuId = 1;
 int change = 0;
 int channel = 0;
 int mode = 0;
 bool load = false;
+
+// External devices
+LiquidCrystal_I2C lcd(0x27,20,4);  // Set the LCD address to 0x27 for a 16 chars and 2 line display
+Adafruit_ADS1115 ads;
+Adafruit_MCP4725 dac;
 
 // Make some custom characters
 uint8_t degree[8]  = {140,146,146,140,128,128,128,128};
@@ -78,8 +81,6 @@ int DecodeSwitch(uint8_t switchState) {
   return BTN_UP;
 }
 
-extern void mainMenu();
-
 // ***************************************************************
 // Setup
 // ***************************************************************
@@ -109,17 +110,19 @@ void setup() {
   // ads.setGain(GAIN_FOUR);       // 4x gain   +/- 1.024V  1 bit = 0.5mV    0.03125mV
   // ads.setGain(GAIN_EIGHT);      // 8x gain   +/- 0.512V  1 bit = 0.25mV   0.015625mV
   // ads.setGain(GAIN_SIXTEEN);    // 16x gain  +/- 0.256V  1 bit = 0.125mV  0.0078125mV
+  Serial.println("Initializing ADS");
   if (!ads.begin()) {
     lcd.clear();
     lcd.setCursor(0,0);
+    Serial.println("Failed to initialize ADS.");
     lcd.print("Failed to initialize ADS.");
     delay(100);
     while (1) {
       delay(1000);
     }
   }
+  Serial.println("ADS initialized.");
   ads.startADCReading(MUX_BY_CHANNEL[channel], false);
-
   pinMode(PIN_PWM, OUTPUT);
   digitalWrite(PIN_PWM, LOW);
   pinMode(PIN_A, INPUT);
@@ -135,7 +138,7 @@ void setup() {
   lcd.setCursor(4,1);
   lcd.print("Jason Figge");
   lcd.setCursor(1,2);
-  lcd.print("Version 0.3.0 Beta");
+  lcd.print("Version 0.4.0");
   lcd.setCursor(1,3);
   lcd.print("Built: Sep 24, 2022");  
   unsigned long SlapshStartTime = millis();
@@ -144,32 +147,29 @@ void setup() {
   }
   lcd.clear();
 
-  lcd.setCursor(0,0);
-  lcd.print("Voltages:");
 } 
 
-void loop(void) {
-  mainMenu();
-}
-
+// ***************************************************************
+// Processing functions
+// ***************************************************************
 void updateVoltages() {
   if (ads.conversionComplete()) {
     float voltage = ads.computeVolts(ads.getLastConversionResults());
     switch (channel) {
     case 0: 
-      vin = voltage;
+      vin[VIN_VOLTAGE] = voltage;
       change |= 1;
       break;
     case 1:
-      celcius = (voltage * 100) - 273.15;
+      vin[VIN_CELCIUS] = (voltage * 100) - 273.15;
       change |= 2;
       break;
     case 2:
-      vLoad = voltage;
+      vin[VIN_VLOAD] = voltage;
       change |= 4;
       break;
     case 3:
-    aLoad = voltage;
+    vin[VIN_ALOAD] = voltage;
       change |= 8;
       break;
     }
@@ -193,4 +193,183 @@ void configureMode() {
 void runMode() {
     Serial.print("Load: ");
     Serial.println(load ? "On" : "Off");
+}
+
+// ***************************************************************
+// User Interface
+// ***************************************************************
+void printValue(int index, int value, int row, int col) {
+  char buf[10];  
+  switch (index) {
+  case 0:
+    sprintf( buf, "%01d.%03dA", value / 1000, value % 1000);
+    break;
+  case 1:
+    sprintf( buf, "%02d.%02dV", value / 100, value % 100);
+    break;
+  case 2:
+    sprintf( buf, "%03d.%01dW", value / 10, value % 10);
+    break;
+  case 3:
+    sprintf( buf, "%05dR", value);
+    break;
+  }
+  lcd.setCursor(row,col);
+  lcd.print(buf);
+}
+
+void runMenuPosition(int index, int offset) {
+  switch (index) {
+    case 0:
+      switch (mode) {
+        case 0: lcd.setCursor(offset, 0); break;
+        case 1: lcd.setCursor(offset, 1); break;
+        case 2:
+        case 3: lcd.setCursor(10 + offset, 0); break;
+        case 4:
+        case 5: lcd.setCursor(10 + offset, 1); break;
+      }
+      break;
+    case 1:
+      lcd.setCursor(offset, 2);
+      break;
+    default:
+      lcd.setCursor(-5 + index * 3, 3);
+      break;
+  }
+}
+
+void numberInputHandler(const int rotation) {
+  if (rotation > 0) {
+    numberInputId++;
+    numberValue += numberIncrement;
+    if (numberInputId >= 10) {
+      numberInputId = 0;
+    }
+  } else if (rotation < 0) {
+    numberInputId--;
+    numberValue -= numberIncrement;
+    if (numberInputId <= 0) {
+      numberInputId = 9;
+    }
+  }
+}
+
+int numberInput(int index) {
+  int digitId;
+  int digits = index < 3 ? 4 : 5;
+  lcd.clear();
+
+  rfunc = numberInputHandler;
+  
+  numberValue = set[index];
+  digitId = index;
+  numberIncrement = pwr[digits - 1 - digitId];
+  numberInputId = int(numberValue / pwr[digits - 1 - digitId]) % 10;
+  lastNumberInputId = numberInputId;
+
+  printValue(index, set[index], int(index / 2) * 10 + 2, index % 2);
+  lcd.setCursor(int(index / 2) * 10 + digitId + (digitId <= index ? 2 : 3), index % 2);
+  lcd.cursor();
+
+  while(DecodeSwitch(PIN_PORT & SW_BYTE) != 0);
+  while(true) {
+    updateVoltages();
+    DecodeRotaryEncoder(PIN_PORT & AB_BYTE);
+    if (lastNumberInputId != numberInputId) {
+      lastNumberInputId = numberInputId;
+      printValue(index, numberValue, int(index / 2) * 10 + 2, index % 2);
+      lcd.setCursor(int(index / 2) * 10 + digitId + (digitId <= index ? 2 : 3), index % 2);
+    }
+    switch (DecodeSwitch(PIN_PORT & SW_BYTE)) {
+      case BTN_DOWN:
+        digitId = (digitId + 1) % digits;
+        lcd.setCursor(int(index / 2) * 10 + digitId + (digitId <= index ? 2 : 3), index % 2);
+        numberIncrement = pwr[digits - 1 - digitId];
+        numberInputId = int(numberValue / numberIncrement) % 10;
+        lastNumberInputId = numberInputId;
+        break;
+      case BTN_LONG_HOLD:
+        lcd.noCursor();
+        return numberValue;
+    }
+  }
+  return numberValue;
+}
+
+void runMenuHandler(const int rotation) {
+  if (rotation > 0) {
+    if (runMenuId < 7) {
+      runMenuId++;
+    }
+  } else if (rotation < 0) {
+    if (runMenuId > 0) {
+      runMenuId--;
+    }
+  }
+  if (lastRunMenuId != runMenuId) {
+    runMenuPosition(lastRunMenuId, 0);
+    lcd.print(" ");
+    runMenuPosition(runMenuId, 0);
+    lcd.print(">");
+    lastRunMenuId = runMenuId;
+  }
+}
+
+// ***************************************************************
+// Main loop
+// ***************************************************************
+void loop(void) {
+  lcd.clear();
+  rfunc = runMenuHandler;
+  for (int i = 0; i < 4; i++) {
+    printValue(i, set[i], int(i / 2) * 10 + 2, i % 2);
+  }
+  runMenuPosition(0, 1);
+  lcd.print("*");
+  lcd.setCursor(2,2);
+  lcd.print(load ? "On" : "Off");
+  lcd.setCursor(12, 2);
+  lcd.print(vin[VIN_CELCIUS]);
+  lcd.write((byte)0);
+  lcd.print("C");
+  lcd.setCursor(1,3);
+  lcd.print(" CC CV Pa Pv Ra Rv");
+  runMenuPosition(lastRunMenuId, 0);
+  lcd.print(" ");
+  runMenuPosition(runMenuId, 0);
+  lcd.print(">");
+  lastRunMenuId = runMenuId;
+
+  while(DecodeSwitch(PIN_PORT & SW_BYTE) != 0);
+  while(true) {
+    updateVoltages();
+    DecodeRotaryEncoder(PIN_PORT & AB_BYTE);
+    switch (DecodeSwitch(PIN_PORT & SW_BYTE)) {
+      case BTN_SHORT_RELEASE:
+        switch (runMenuId) {
+        case 0:
+          load = false;
+          runMode();
+          switch (mode) {
+            case 4: case 5: numberInput(3); break;
+            case 3: numberInput(2); break;
+            default: numberInput(mode);
+          }
+          return;
+        case 1:
+          load = !load;
+          runMode();
+          return;
+        default:
+          mode = runMenuId - 2;
+          configureMode();
+          return;
+        }
+      case BTN_LONG_HOLD:
+        runMenuId = 1;
+        lastRunMenuId = 1;
+        return;
+    }
+  }
 }
