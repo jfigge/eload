@@ -17,7 +17,7 @@
 #define SET_RESISTANCE 2
 #define SET POWER 3
 
-int set[] = {1234,1625,600,10000};
+int set[] = {1234,1625,600,1000};
 String names[] = {"Current", "Voltage", "Power", "Resistance"};
 
 LiquidCrystal_I2C lcd(0x27,20,4);  // Set the LCD address to 0x27 for a 16 chars and 2 line display
@@ -25,13 +25,13 @@ Adafruit_ADS1115 ads;
 Adafruit_MCP4725 dac;
 
 float vin;
-float vload;
-float aload;
-uint16_t dacv = -1;
-
+float celcius;
+float vLoad;
+float aLoad;
+int change = 0;
 int channel = 0;
-int last_channel = 0;
-float last_result[4];
+int mode = 0;
+bool load = false;
 
 // Make some custom characters
 uint8_t degree[8]  = {140,146,146,140,128,128,128,128};
@@ -135,7 +135,7 @@ void setup() {
   lcd.setCursor(4,1);
   lcd.print("Jason Figge");
   lcd.setCursor(1,2);
-  lcd.print("Version 0.1.0 Beta");
+  lcd.print("Version 0.3.0 Beta");
   lcd.setCursor(1,3);
   lcd.print("Built: Sep 24, 2022");  
   unsigned long SlapshStartTime = millis();
@@ -148,76 +148,49 @@ void setup() {
   lcd.print("Voltages:");
 } 
 
-bool fanOn;
-float last_vin;
-float last_kelvin;
-float last_vload;
-float last_aload;
-
-float kelvin;
-uint16_t tmp;
-long last_update = millis();
-
-void status(const int rotary) {
-
-}
 void loop(void) {
- mainMenu();
-//   if (ads.conversionComplete()) {
-//     uint16_t ain = ads.getLastConversionResults();
-//     last_result[channel] = ads.computeVolts(ain);
-//     channel = (channel + 1) % 4;
-//     ads.startADCReading(MUX_BY_CHANNEL[channel], false);
-//   }
-  
-//   if (last_channel != channel) {
-//     switch (last_channel) {
-//       case 0:
-//         vin = last_result[last_channel];
-//         if (last_vin != vin) {
-//           last_vin = vin;
-//           lcd.setCursor(9,0);
-//           lcd.print(vin);
-//           lcd.print("V ");
-//         }
-//         break;
-//       case 1:
-//         kelvin = last_result[last_channel] * 100;
-//         if (last_kelvin != kelvin) {
-//           last_kelvin = kelvin;
-//           lcd.setCursor(0,3);
-//           lcd.print(kelvin - 273.15);
-//           lcd.write((byte)0);
-//           lcd.print("C"`);
-//         }
-//         break;
-//       case 2:
-//         vload = last_result[last_channel];
-//         if (last_vload != vload) {
-//           last_vload = vload;
-//           digitalWrite(PIN_RELAY, vload > 3.810 ? LOW : HIGH); 
-//           //digitalWrite(PIN_RELAY, LOW); 
-//           lcd.setCursor(9,1);
-//           lcd.print(((vload - 0.0012)  * 83165) / 10544);
-//           lcd.print("V ");
-//           //lcd.write((byte)B01111110);
-//           // tmp = (vload * 4096) / vin;
-//           // if (tmp != dacv) {
-//           //   //dac.setVoltage(tmp, false, 400);
-//           //   //dacv = tmp;
-//           // }
-//         }
-//         break;
-//       case 3:
-//         aload = last_result[last_channel] * 10;
-//         if (last_aload != aload) {
-//           last_aload = aload;
-//           lcd.setCursor(9,2);
-//           lcd.print(aload);  
-//           lcd.print("A ");
-//         }
-//         break;
-//     }
-//     last_channel = channel;
-//   }
+  mainMenu();
+}
+
+void updateVoltages() {
+  if (ads.conversionComplete()) {
+    float voltage = ads.computeVolts(ads.getLastConversionResults());
+    switch (channel) {
+    case 0: 
+      vin = voltage;
+      change |= 1;
+      break;
+    case 1:
+      celcius = (voltage * 100) - 273.15;
+      change |= 2;
+      break;
+    case 2:
+      vLoad = voltage;
+      change |= 4;
+      break;
+    case 3:
+    aLoad = voltage;
+      change |= 8;
+      break;
+    }
+    channel = (channel + 1) % 4;
+    ads.startADCReading(MUX_BY_CHANNEL[channel], false);
+  }
+}
+
+void configureMode() {
+  lcd.setCursor(0,2);
+  switch (mode) {
+    case 0: Serial.println("Constant current    "); break;
+    case 1: Serial.println("Constant voltage    "); break;
+    case 2: Serial.println("Constant power by current "); break;
+    case 3: Serial.println("Constant power by voltage "); break;
+    case 4: Serial.println("Constant resist by current"); break;
+    case 5: Serial.println("Constant resist by voltage"); break;
+  }
+}
+
+void runMode() {
+    Serial.print("Load: ");
+    Serial.println(load ? "On" : "Off");
 }
