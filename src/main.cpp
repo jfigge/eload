@@ -17,8 +17,23 @@
 #define VIN_VLOAD 2
 #define VIN_ALOAD 3
 
-int set[4] = {1234,1625,600,1000};
-float vin[4] = {0,0,0,0};
+#define MODE_CC 0
+#define MODE_CV 1
+#define MODE_PA 2
+#define MODE_PV 3
+#define MODE_RA 4
+#define MODE_RV 5
+
+#define SET_CURRENT 0
+#define SET_VOLTAGE 1
+#define SET_POWER 2
+#define SET_RESISTANCE 3
+
+#define ID_R1 1005
+#define ID_R2 38730
+
+int set[4] = {0001,100,100,10};
+float vin[4] = {0.0,0.0,0.0,0.0};
 const int pwr[5] = {1,10,100,1000,10000};
 int numberInputId = 0;
 int lastNumberInputId = 0;
@@ -29,9 +44,12 @@ int lastRunMenuId = 1;
 byte change = 0;
 int channel = 0;
 int mode = 0;
+int lastMode = 0;
 bool load = false;
+bool lastLoad=true;
 
 void runMode();
+void printValue(int index, int value, int row, int col);
 
 // External devices
 LiquidCrystal_I2C lcd(0x27,20,4);  // Set the LCD address to 0x27 for a 16 chars and 2 line display
@@ -47,7 +65,6 @@ uint8_t fan[7][8] = {
   {31,17,17,17,31,21,27,31},
   {31,17,17,31,21,27,21,31},
   {31,17,31,21,27,21,27,31},
-  //{31,31,21,27,21,27,21,31},
   {31,27,21,27,21,27,21,31},
 };
 
@@ -98,12 +115,29 @@ int decodeSwitch(uint8_t switchState) {
 // Setup
 // ***************************************************************
 void setup() {
-  // *********************
-  // Debugging
-  // *********************
+  // Fan
+  analogWrite(PIN_PWM, 0);
+  pinMode(PIN_PWM, OUTPUT);
+  
+  // Rotary encoder
+  pinMode(PIN_A, INPUT);
+  pinMode(PIN_A, INPUT);
+  pinMode(PIN_SW, INPUT_PULLUP);
+
+  // Load
+  digitalWrite(PIN_LOAD_SW, LOW);
+  pinMode(PIN_LOAD_SW, OUTPUT);
+
+  // OpAmp
+  digitalWrite(PIN_NEGATIVE, LOW);
+  pinMode(PIN_NEGATIVE, OUTPUT);
+  digitalWrite(PIN_POSITIVE, LOW);
+  pinMode(PIN_POSITIVE, OUTPUT);
+
+  // Logging
   Serial.begin(BAUD_RATE);
 
-  // initialize the lcd 
+  // Initialize the LCD
   Serial.println("Initializing LCD");
   lcd.init();
   lcd.createChar(0, degree);
@@ -113,7 +147,7 @@ void setup() {
   lcd.backlight();
   Serial.println("LCD initialized.");
 
-  // initiaize the dac
+  // Initiaize the dac
   Serial.println("Initializing DAC");
   dac.begin(0x60);
   if (!dac.setVoltage(0, false)) {
@@ -153,25 +187,6 @@ void setup() {
   ads.startADCReading(MUX_BY_CHANNEL[channel], false);
   Serial.println("ADS initialized.");
 
-  // Rotary encoder
-  pinMode(PIN_A, INPUT);
-  pinMode(PIN_A, INPUT);
-  pinMode(PIN_SW, INPUT_PULLUP);
-
-  // Load
-  digitalWrite(PIN_LOAD_SW, LOW);
-  pinMode(PIN_LOAD_SW, OUTPUT);
-
-  // Fan
-  analogWrite(PIN_PWM, 0);
-  pinMode(PIN_PWM, OUTPUT);
-  
-  // OpAmp
-  digitalWrite(PIN_NEGATIVE, LOW);
-  pinMode(PIN_NEGATIVE, OUTPUT);
-  digitalWrite(PIN_POSITIVE, LOW);
-  pinMode(PIN_POSITIVE, OUTPUT);
-
   // Display the splash screen for 3 seconds, 
   // or until the rotary encoder is depressed
   lcd.setCursor(2,0);
@@ -179,11 +194,11 @@ void setup() {
   lcd.setCursor(4,1);
   lcd.print("Jason Figge");
   lcd.setCursor(1,2);
-  lcd.print("Version 0.6.0");
+  lcd.print("Version 0.7.0");
   lcd.setCursor(1,3);
-  lcd.print("Built: Oct 16, 2022");  
+  lcd.print("Built: Oct 19, 2022");  
   unsigned long SlapshStartTime = millis();
-  while (PIN_PORT & SW_BYTE && millis() - SlapshStartTime < 4000) {
+  while (PIN_PORT & SW_BYTE && millis() - SlapshStartTime < 3000) {
     delay(1);
   }
   lcd.clear();
@@ -224,6 +239,17 @@ void updateStatus() {
   }
 }
 
+// void displayValues(bool force) {
+//   static float last[4];
+//   float value = retrieveValue(i);
+//   Serial.print("Retrieved value: ");
+//   Serial.println(value,3);
+//   if (force || last[i] != value) {
+//     last[i] = value; 
+//     printValue(i, value, int(i / 2) * 10 + 2, i % 2);
+//   }
+// }
+
 // ***************************************************************
 // Processing functions
 // ***************************************************************
@@ -240,7 +266,7 @@ void updateVoltages() {
     case 0: 
       if (vin[VIN_VOLTAGE] != voltage) {
         vin[VIN_VOLTAGE] = voltage;
-        change |= B00000001;
+        printValue(0, voltage, int(0 / 2) * 10 + 2, 0 % 2);
       }
       break;
     case 1: {
@@ -248,19 +274,24 @@ void updateVoltages() {
       if (x != vin[VIN_CELCIUS]) {
         vin[VIN_CELCIUS] = x;
         change |= B00000010;
+        printValue(0, voltage, int(0 / 2) * 10 + 2, 0 % 2);
       }
       break;
     }
-    case 2:
-      if (vin[VIN_VLOAD] != voltage) {
-        vin[VIN_VLOAD] = voltage;
+    case 2: {
+      float v = ((voltage * (ID_R1 + ID_R2))  / ID_R1);
+      if (vin[VIN_VLOAD] != v) {
+        vin[VIN_VLOAD] = v;
         change |= B00000100;
+        printValue(0, voltage, int(0 / 2) * 10 + 2, 0 % 2);
       }
       break;
+    }
     case 3:
       if (vin[VIN_ALOAD] != voltage) {
         vin[VIN_ALOAD] = voltage;
         change |= B00001000;
+        printValue(0, voltage, int(0 / 2) * 10 + 2, 0 % 2);
       }
       break;
     }
@@ -274,28 +305,29 @@ void updateVoltages() {
 
 void configureMode() {
   lcd.setCursor(0,2);
+  load = false;
   switch (mode) {
-    case 0: 
+    case MODE_CC: 
       Serial.println("Constant current    "); 
       wireOpAmp(true);
       break;
-    case 1: 
+    case MODE_CV: 
       Serial.println("Constant voltage    "); 
       wireOpAmp(false);
       break;
-    case 2: 
+    case MODE_PA: 
       Serial.println("Constant power by current "); 
       wireOpAmp(true);
       break;
-    case 3: 
+    case MODE_PV: 
       Serial.println("Constant power by voltage "); 
       wireOpAmp(false);
       break;
-    case 4: 
+    case MODE_RA: 
       Serial.println("Constant resist by current"); 
       wireOpAmp(true);
       break;
-    case 5: 
+    case MODE_RV: 
       Serial.println("Constant resist by voltage"); 
       wireOpAmp(false);
       break;
@@ -303,10 +335,38 @@ void configureMode() {
 }
 
 void runMode() {
-  Serial.print("Load: ");
-  Serial.println(load ? "On" : "Off");
-  lcd.setCursor(2,2);
-  lcd.print(load ? "On" : "Off");
+  if (lastLoad != load) {
+    Serial.print("Load: ");
+    Serial.println(load ? "On" : "Off");
+    lcd.setCursor(2,2);
+    lcd.print(load ? "On" : "Off");
+  }
+    digitalWrite(PIN_LOAD_SW, load ? HIGH : LOW);
+}
+
+float retrieveValue(int value) {
+  switch(value) {
+    case SET_CURRENT:
+      return mode == MODE_CC ?  float(set[SET_CURRENT]) / 1000.0 : vin[VIN_ALOAD];
+      break;
+    case SET_VOLTAGE: 
+      return mode == MODE_CV ? set[SET_VOLTAGE] : vin[VIN_VLOAD];
+    case SET_POWER:
+      return (mode == MODE_PA || mode == MODE_PV) ? set[SET_POWER] : vin[VIN_VLOAD] * vin[VIN_ALOAD];
+    case SET_RESISTANCE:
+      return (mode == MODE_RA || mode == MODE_RA) ? set[SET_RESISTANCE] : vin[VIN_VLOAD] / vin[VIN_ALOAD];
+  }
+  Serial.print("Unexpected retrieveValue parameter called: ");
+  Serial.println(value);
+  lcd.clear();
+  lcd.setCursor(0,0);
+  Serial.print("Unexpected retrieve-");
+  lcd.setCursor(0,1);
+  Serial.print("parameter called:");
+  lcd.setCursor(0,3);
+  Serial.print("Halted");
+  Serial.print(value);
+  while (true) delay(1000);
 }
 
 // ***************************************************************
@@ -316,16 +376,16 @@ void printValue(int index, int value, int row, int col) {
   char buf[10];  
   switch (index) {
   case 0:
-    sprintf( buf, "%01d.%03dA", value / 1000, value % 1000);
+    snprintf_P(buf, sizeof(buf), PSTR("%01d.%03dA"), value / 1000, value % 1000);
     break;
   case 1:
-    sprintf( buf, "%02d.%02dV", value / 100, value % 100);
+    snprintf_P(buf, sizeof(buf), PSTR("%02d.%02dV"), value / 100, value % 100);
     break;
   case 2:
-    sprintf( buf, "%03d.%01dW", value / 10, value % 10);
+    snprintf_P(buf, sizeof(buf), PSTR("%03d.%01dW"), value / 10, value % 10);
     break;
   case 3:
-    sprintf( buf, "%05dR", value);
+    snprintf_P(buf, sizeof(buf), PSTR("%05dR"), value);
     break;
   }
   lcd.setCursor(row,col);
@@ -429,26 +489,30 @@ void runMenuHandler(const int rotation) {
   }
 }
 
+void printRunMenuSelector() {
+  if (lastRunMenuId != runMenuId) {
+    lastRunMenuId = runMenuId;
+    runMenuPosition(lastRunMenuId, 0);
+    lcd.print(" ");
+    runMenuPosition(runMenuId, 0);
+    lcd.print(">");
+    lastRunMenuId = runMenuId;
+  }
+}
+
 // ***************************************************************
 // Main loop
 // ***************************************************************
 void loop(void) {
-  lcd.clear();
   rfunc = runMenuHandler;
-  for (int i = 0; i < 4; i++) {
-    printValue(i, set[i], int(i / 2) * 10 + 2, i % 2);
-  }
+  lcd.setCursor(1,3);
+  lcd.print(" CC CV Pa Pv Ra Rv");
+  temperatureChange();
+start:
   runMenuPosition(0, 1);
   lcd.print("*");
   runMode();
-  temperatureChange();
-  lcd.setCursor(1,3);
-  lcd.print(" CC CV Pa Pv Ra Rv");
-  runMenuPosition(lastRunMenuId, 0);
-  lcd.print(" ");
-  runMenuPosition(runMenuId, 0);
-  lcd.print(">");
-  lastRunMenuId = runMenuId;
+  printRunMenuSelector();
 
   while(decodeSwitch(PIN_PORT & SW_BYTE) != 0);
   while(true) {
@@ -459,26 +523,26 @@ void loop(void) {
         switch (runMenuId) {
         case 0:
           load = false;
-          runMode();
           switch (mode) {
             case 4: case 5: numberInput(3); break;
             case 3: numberInput(2); break;
             default: numberInput(mode);
           }
-          return;
+          goto start;
         case 1:
           load = !load;
-          runMode();
-          return;
+          goto start;
         default:
-          mode = runMenuId - 2;
-          configureMode();
-          return;
+          if (mode != runMenuId - 2) {
+            mode = runMenuId - 2;
+            configureMode();
+          }
+          goto start;return;
         }
       case BTN_LONG_HOLD:
         runMenuId = 1;
         lastRunMenuId = 1;
-        return;
+        goto start;
     }
   }
 }
