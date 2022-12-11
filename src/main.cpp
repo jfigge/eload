@@ -65,44 +65,6 @@ int dataCoords[2][7][2] = {
 };
 
 // ***************************************************************
-// Rotatry encoder functions
-// ***************************************************************
-void decodeRotaryEncoder(uint8_t raw) {
-  static uint8_t states[] = {0,4,1,0,2,1,1,0,2,3,1,2,2,3,3,0,5,4,4,0,5,4,6,5,5,6,6,0};
-  static uint8_t lastRaw = -1;
-  static uint8_t lastState = -1;
-  if (lastRaw != raw) {
-    lastRaw = raw;
-    uint8_t state = states[(raw >> AB_SHIFT) | (lastState << 2)];
-    if (rfunc != 0 && state == 0) {
-      if (lastState == 6) {
-        rfunc(1);
-      } else if (lastState == 3) {
-        rfunc(-1);
-      }
-    }
-    lastState = state;
-  }
-}
-int decodeSwitch(uint8_t switchState) {
-  static long timer;
-  static uint8_t lastSwitchState = -1;
-  if (lastSwitchState != switchState) {
-    lastSwitchState = switchState;
-    if (!switchState) {
-      timer = millis();
-      return BTN_DOWN;
-    } else {
-      timer = millis() - timer;
-      return timer > 1000 ? BTN_LONG_RELEASE : BTN_SHORT_RELEASE;
-    }
-  } else if (!switchState) {
-    return millis() - timer > 1000 ? BTN_LONG_HOLD : BTN_SHORT_HOLD;
-  }
-  return BTN_UP;
-}
-
-// ***************************************************************
 // ADC functions
 // ***************************************************************
 int lastVCC = 0;
@@ -129,7 +91,7 @@ void setTemperature(int celcius) {
       if (celcius >= 100) {
         analogWrite(PIN_FAN, 255);
         load = false;
-        digitalWrite(PIN_LOAD_SW, LOW);
+        PORTB |= B00000100; // digitalWrite(PIN_LAOD_SW(D10), LOW);
         //runMode();
       } else if (celcius > 70) {
         analogWrite(PIN_FAN, 255);
@@ -159,7 +121,6 @@ void setLoadVoltage(float voltage) {
     }
   }
 }
-
 void updateVoltages() {
   if (ads.conversionComplete()) {
     float voltage = ads.computeVolts(ads.getLastConversionResults());
@@ -182,12 +143,12 @@ void updateVoltages() {
     channel = (channel + 1) % 4;
     ads.startADCReading(MUX_BY_CHANNEL[channel], false);
   }
-  overload = digitalRead(PIN_LOAD_OVER);
+  overload = (PINB & 2) >> 1; // digitalRead(PIN_LOAD_OVER(D9))
   if (overload != overloadLast) {
     overloadLast = overload;
     lcd.setCursor(dataCoords[menuIndex][DATA_RUN][0], dataCoords[menuIndex][DATA_RUN][1]);
     lcd.print(overload == LOW ? "O" : digitalRead(PIN_FAN) == LOW ? "N" : "Y");
-    digitalWrite(PIN_LOAD_SW, LOW);
+    PORTB &= B11111011; // digitalWrite(PIN_LOAD_SW(D10), LOW);
   }
 }
 
@@ -216,15 +177,29 @@ void setup() {
   pinMode(PIN_SW, INPUT_PULLUP);
 
   // Load
-  digitalWrite(PIN_LOAD_SW, LOW);
+  PORTB &= B11111011; // digitalWrite(PIN_LOAD_SW(D10), LOW);
   pinMode(PIN_LOAD_SW, OUTPUT);
   pinMode(PIN_LOAD_OVER, INPUT);
 
   // OpAmp
-  digitalWrite(PIN_NEGATIVE, LOW);
+  PORTB &= B11111110; // digitalWrite(PIN_NEGATIVE(D8), LOW);
   pinMode(PIN_NEGATIVE, OUTPUT);
-  digitalWrite(PIN_POSITIVE, LOW);
+  PORTD &= B01111111; // digitalWrite(PIN_POSITIVE(D7), LOW);
   pinMode(PIN_POSITIVE, OUTPUT);
+
+  // Beeper
+  noTone(PIN_BEEPER);
+  pinMode(PIN_BEEPER, OUTPUT);
+
+  // Unused
+  pinMode(12, INPUT_PULLUP);
+  pinMode(13, INPUT_PULLUP);
+  pinMode(A0, INPUT_PULLUP);
+  pinMode(A1, INPUT_PULLUP);
+  pinMode(A2, INPUT_PULLUP);
+  pinMode(A3, INPUT_PULLUP);
+  pinMode(A6, INPUT_PULLUP);
+  pinMode(A7, INPUT_PULLUP);
 
   // Initialize logging
   Serial.begin(BAUD_RATE);
@@ -288,31 +263,93 @@ void setMenuIndex(int index) {
   overloadLast = -1;
   lcd.clear();
 }
-
 void loadOn() {
-  overload = digitalRead(PIN_LOAD_OVER);
+  overload = (PINB & 2) >> 1; // digitalRead(PIN_LOAD_OVER)
   lcd.setCursor(dataCoords[menuIndex][DATA_RUN][0], dataCoords[menuIndex][DATA_RUN][1]);
   if (overload == HIGH) {
-    digitalWrite(PIN_LOAD_SW, HIGH);
+    PORTB |= B00000100; // digitalWrite(PIN_LOAD_SW(D10), HIGH);
     lcd.print("Y");
   } else {
-    digitalWrite(PIN_LOAD_SW, LOW);
+    PORTB &= B11111011; // digitalWrite(PIN_LOAD_SW(D10), LOW);
     lcd.print("O");
   }
   overloadLast = overload;
 }
-
 void loadOff() {
-  overload = digitalRead(PIN_LOAD_OVER);
+  overload = (PINB & 2) >> 1; // digitalRead(PIN_LOAD_OVER(D9))
   lcd.setCursor(dataCoords[menuIndex][DATA_RUN][0], dataCoords[menuIndex][DATA_RUN][1]);
+  PORTB &= B11111011; // digitalWrite(PIN_LOAD_SW(D10), LOW);
   if (overload == HIGH) {
-    digitalWrite(PIN_LOAD_SW, LOW);
     lcd.print("N");
   } else {
-    digitalWrite(PIN_LOAD_SW, LOW);
     lcd.print("O");
   }
   overloadLast = overload;
+}
+void beep(int type) {
+  switch (type) {
+  case 1: 
+  case 2: 
+    tone(PIN_BEEPER, 400);
+    delay(2);
+    break;
+  case 3: 
+    tone(PIN_BEEPER, 400);
+    delay(3);
+    tone(PIN_BEEPER, 600);
+    delay(3);
+    tone(PIN_BEEPER, 400);
+    delay(3);
+    break;
+  default: 
+    tone(PIN_BEEPER, 250);
+    delay(1);
+    tone(PIN_BEEPER, 250);
+    delay(1);
+    tone(PIN_BEEPER, 250);
+    delay(1);
+  }
+  noTone(PIN_BEEPER);
+}
+
+// ***************************************************************
+// Rotatry encoder functions
+// ***************************************************************
+void decodeRotaryEncoder(uint8_t raw) {
+  static uint8_t states[] = {0,4,1,0,2,1,1,0,2,3,1,2,2,3,3,0,5,4,4,0,5,4,6,5,5,6,6,0};
+  static uint8_t lastRaw = -1;
+  static uint8_t lastState = -1;
+  if (lastRaw != raw) {
+    lastRaw = raw;
+    uint8_t state = states[(raw >> AB_SHIFT) | (lastState << 2)];
+    if (rfunc != 0 && state == 0) {
+      if (lastState == 6) {
+        rfunc(1);
+      } else if (lastState == 3) {
+        rfunc(-1);
+      }
+    }
+    lastState = state;
+  }
+}
+int decodeSwitch(uint8_t switchState) {
+  static long timer;
+  static uint8_t lastSwitchState = -1;
+  if (lastSwitchState != switchState) {
+    lastSwitchState = switchState;
+    if (!switchState) {
+      timer = millis();
+      beep(1);
+      return BTN_DOWN;
+    } else {
+      timer = millis() - timer;
+      beep(2);
+      return timer > 1000 ? BTN_LONG_RELEASE : BTN_SHORT_RELEASE;
+    }
+  } else if (!switchState) {
+    return millis() - timer > 1000 ? BTN_LONG_HOLD : BTN_SHORT_HOLD;
+  }
+  return BTN_UP;
 }
 
 // ***************************************************************
@@ -323,10 +360,12 @@ int lastDebugMenuId = 0;
 void debugMenuHandler(const int rotation) {
   if (rotation > 0) {
     if (debugMenuId < 2) {
+      beep(0);
       debugMenuId++;
     }
   } else if (rotation < 0) {
     if (debugMenuId > 0) {
+      beep(0);
       debugMenuId--;
     }
   }
@@ -366,7 +405,7 @@ void debugMenu() {
         switch (debugMenuId) {
         case 0:
           if (overloadLast == HIGH ) {
-            if (digitalRead(PIN_LOAD_SW) == LOW) {
+            if ((PINB & 4) >> 2 == LOW) { // if (digitalRead(10) == LOW)
               loadOn();
             } else {
               loadOff();
@@ -375,18 +414,18 @@ void debugMenu() {
           }
           break;
         case 1:
-          digitalWrite(PIN_NEGATIVE, HIGH);
+          PORTB |= B00000001; // digitalWrite(PIN_NEGATIVE(D8), HIGH);
           delay(50);
-          digitalWrite(PIN_NEGATIVE, LOW);
+          PORTB &= B11111110; // digitalWrite(PIN_NEGATIVE(D8), LOW);
           lcd.setCursor(1,1);
           lcd.print("N");
           lcd.setCursor(1,2);
           lcd.print("p");
           break;
         case 2:
-          digitalWrite(PIN_POSITIVE, HIGH);
+          PORTD |= B10000000; // digitalWrite(PIN_POSITIVE(D8), HIGH);
           delay(50);
-          digitalWrite(PIN_POSITIVE, LOW);
+          PORTD &= B01111111; // digitalWrite(PIN_POSITIVE(D8), LOW);
           lcd.setCursor(1,1);
           lcd.print("n");
           lcd.setCursor(1,2);
@@ -395,6 +434,7 @@ void debugMenu() {
         }
         break;
       case BTN_LONG_HOLD:
+        beep(1);
         Serial.print("Long Hold: ");
         loadOff();
         return;
@@ -411,11 +451,17 @@ int lastMainMenuId = 0;
 void mainMenuHandler(const int rotation) {
   if (rotation > 0) {
     if (mainMenuId < 5) {
+      beep(0);
       mainMenuId++;
+    } else {
+      beep(3);
     }
   } else if (rotation < 0) {
     if (mainMenuId > 0) {
+      beep(0);
       mainMenuId--;
+    } else {
+      beep(3);
     }
   }
   if (lastMainMenuId != mainMenuId) {
