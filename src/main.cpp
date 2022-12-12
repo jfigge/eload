@@ -288,20 +288,16 @@ void loadOff() {
 }
 void beep(int type) {
   switch (type) {
-  case 1: 
-  case 2: 
+  case 1: // Button down
+  case 2: // Button up
     tone(PIN_BEEPER, 400);
     delay(2);
     break;
-  case 3: 
-    tone(PIN_BEEPER, 400);
-    delay(3);
-    tone(PIN_BEEPER, 600);
-    delay(3);
-    tone(PIN_BEEPER, 400);
-    delay(3);
+  case 3: // Error
+    tone(PIN_BEEPER, 1000);
+    delay(10);
     break;
-  default: 
+  default: // Menu
     tone(PIN_BEEPER, 250);
     delay(1);
     tone(PIN_BEEPER, 250);
@@ -362,11 +358,15 @@ void debugMenuHandler(const int rotation) {
     if (debugMenuId < 2) {
       beep(0);
       debugMenuId++;
+    } else {
+      beep(3);
     }
   } else if (rotation < 0) {
     if (debugMenuId > 0) {
       beep(0);
       debugMenuId--;
+    } else {
+      beep(3);
     }
   }
   if (lastDebugMenuId != debugMenuId) {
