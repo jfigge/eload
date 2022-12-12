@@ -20,6 +20,12 @@ uint8_t fan[7][8] = {
   {31,27,21,27,21,27,21,31},
 };
 
+// Range values
+double setValues[4] = {.1, 5, 1000, 0.5};
+float maxValues[4] = {1.5, 30, 3000, 45};
+float incValues[4][4] = { {1, 0, 0.1, 0.01}, {10, 1, 0, 0.1}, {1000, 100, 10, 1}, {10, 1, 0, 0.1} };
+String modeNames[4] = {"Current", "Voltage", "Resistance", "Power"};
+
 // Rotary Encoding
 #define BTN_UP 0
 #define BTN_DOWN 1
@@ -42,14 +48,15 @@ float vcc;
 int temp;
 float loadVcc;
 float loadCurrent;
-
-// Operational control
-bool lastLoad = false; 
 bool load = false;
-
-// load on/off status
-int overloadLast;
 int overload;
+
+// History
+int lastVCC = 0;
+int lastCelcius = 0;
+int lastVoltage = 0;
+bool lastLoad = false; 
+int overloadLast;
 
 // Data location
 #define DATA_CUR 0
@@ -67,9 +74,6 @@ int dataCoords[2][7][2] = {
 // ***************************************************************
 // ADC functions
 // ***************************************************************
-int lastVCC = 0;
-int lastCelcius = 0;
-int lastVoltage = 0;
 void setInputVoltage(float VCC) {
   static unsigned long lastVCCTime = 0;
   if (VCC != lastVCC) {
@@ -307,14 +311,30 @@ void beep(int type) {
   }
   noTone(PIN_BEEPER);
 }
+char* printValue(int col, int row, int index, double value) {
+  char buffer[6];
+  switch (index) {
+  case 0:
+    dtostrf(value, 4, 2, buffer);
+    break;
+  case 2:
+    dtostrf(value, 4, 0, buffer);
+    break;
+  default:
+    dtostrf(value, 4, 1, buffer);
+  }
+  lcd.setCursor(col, row);
+  lcd.print(buffer);
+
+}
 
 // ***************************************************************
 // Rotatry encoder functions
 // ***************************************************************
+uint8_t lastRaw = 12;
+uint8_t lastState = 6;
 void decodeRotaryEncoder(uint8_t raw) {
   static uint8_t states[] = {0,4,1,0,2,1,1,0,2,3,1,2,2,3,3,0,5,4,4,0,5,4,6,5,5,6,6,0};
-  static uint8_t lastRaw = -1;
-  static uint8_t lastState = -1;
   if (lastRaw != raw) {
     lastRaw = raw;
     uint8_t state = states[(raw >> AB_SHIFT) | (lastState << 2)];
@@ -445,9 +465,23 @@ void debugMenu() {
 // ***************************************************************
 // Main menu
 // ***************************************************************
+int mode = 0;
 int mainCoords[6][2] = { {0,0}, {0,1}, {0,2}, {0,3}, {12,0}, {12,3} };
 int mainMenuId = 0;
 int lastMainMenuId = 0;
+void setMode(int newMode) {
+  if (newMode != mode) {
+    if (newMode >=0 && newMode <= 3) {
+      lcd.setCursor(mainCoords[mode][0] + 1, mainCoords[mode][1]);
+      lcd.print(" ");
+      mode = newMode;
+      lcd.setCursor(mainCoords[mode][0] + 1, mainCoords[mode][1]);
+      lcd.print("*");
+    } else {
+      beep(3);
+    }
+  }
+}
 void mainMenuHandler(const int rotation) {
   if (rotation > 0) {
     if (mainMenuId < 5) {
@@ -477,18 +511,24 @@ reset:
   setMenuIndex(0);
   rfunc = mainMenuHandler;
   lcd.setCursor(0,0);
-  lcd.print("  Cur:       Run:");
+  lcd.print("  Cur:    a  Run:");
   lcd.setCursor(0,1);
-  lcd.print("  Vlt:       Tmp:");
+  lcd.print("  Vlt:    v  Tmp:");
   lcd.setCursor(0,2);
-  lcd.print("  Res:       Fan:");
+  lcd.print("  Res:    r  Fan:");
   lcd.setCursor(17,2);
   lcd.write((byte)1);
   lcd.setCursor(0,3);
-  lcd.print("  Pwr:       Monitor");
+  lcd.print("  Pwr:    w  Monitor");
   lcd.setCursor(mainCoords[mainMenuId][0], mainCoords[mainMenuId][1]);
   lcd.print(">");
+  lcd.setCursor(mainCoords[mode][0] + 1, mainCoords[mode][1]);
+  lcd.print("*");
 
+  for (int i = 0; i < 4; i++) {
+    printValue(6, i, i, setValues[i]);
+  }
+ 
   while(decodeSwitch(PIN_PORT & SW_BYTE) != 0);
   while(true) {
     updateVoltages();
@@ -496,17 +536,10 @@ reset:
     switch (decodeSwitch(PIN_PORT & SW_BYTE)) {
       case BTN_SHORT_RELEASE:
         switch (mainMenuId) {
-          case 0: // Current
-            Serial.println("Clicked current");
-            break;
-          case 1: // Voltage
-            Serial.println("Clicked voltage");
-            break;
-          case 2: // Resistance
-            Serial.println("Clicked resistance");
-            break;
-          case 3: // Power
-            Serial.println("Clicked power");
+          case 0 ... 3:
+            Serial.print("Mode selection: ");
+            Serial.println(modeNames[mainMenuId]);
+            setMode(mainMenuId);
             break;
           case 4: // Run
             Serial.println("Clicked run");
@@ -518,6 +551,7 @@ reset:
             break;
         }
         break;
+
     }
   }
 }
