@@ -21,6 +21,7 @@ uint8_t fan[7][8] = {
 };
 
 // Range values
+int mode = 0;
 double setValues[4] = {.1, 5, 1000, 0.5};
 float maxValues[4] = {1.5, 30, 3000, 45};
 float incValues[4][4] = { {1, 0, 0.1, 0.01}, {10, 1, 0, 0.1}, {1000, 100, 10, 1}, {10, 1, 0, 0.1} };
@@ -311,7 +312,7 @@ void beep(int type) {
   }
   noTone(PIN_BEEPER);
 }
-char* printValue(int col, int row, int index, double value) {
+void printValue(int col, int row, int index, double value) {
   char buffer[6];
   switch (index) {
   case 0:
@@ -325,7 +326,6 @@ char* printValue(int col, int row, int index, double value) {
   }
   lcd.setCursor(col, row);
   lcd.print(buffer);
-
 }
 
 // ***************************************************************
@@ -463,9 +463,65 @@ void debugMenu() {
 }
 
 // ***************************************************************
+// Number editor
+// ***************************************************************
+int numberInputId;
+void numberEditorHandler(const int rotation) {
+  double lastValue = setValues[mode];
+  if (rotation > 0) {
+    setValues[mode] = setValues[mode] - incValues[mode][numberInputId];
+    if (setValues[mode] < 0) {
+      setValues[mode] = 0;
+    }
+  } else if (rotation < 0) {
+    setValues[mode] = setValues[mode] + incValues[mode][numberInputId];
+    if (setValues[mode] > maxValues[mode]) {
+      setValues[mode] = maxValues[mode];
+    }
+  }
+
+  if (lastValue != setValues[mode]) {
+    printValue(6, mode, mode, setValues[mode]);
+    lcd.setCursor(6 + numberInputId, mode);
+    beep(0);
+  } else {
+    beep(3);
+  }
+}
+void numberEditorMenu() {
+  rfunc = numberEditorHandler;
+  loadOff();
+  numberInputId = 3;
+  lcd.setCursor(0, mode);
+  lcd.print("  Set");
+  lcd.setCursor(6 + numberInputId, mode);
+  lcd.cursor_on();
+
+  while(decodeSwitch(PIN_PORT & SW_BYTE) != 0);
+  while(true) {
+    decodeRotaryEncoder(PIN_PORT & AB_BYTE);
+    switch (decodeSwitch(PIN_PORT & SW_BYTE)) {
+      case BTN_SHORT_RELEASE:
+        numberInputId--;
+        if (numberInputId < 0) {
+          numberInputId = 3;
+        } else if (incValues[mode][numberInputId] == 0) {
+          numberInputId--;
+        }
+        lcd.setCursor(6 + numberInputId, mode);
+        break;
+      case BTN_LONG_HOLD:
+        beep(1);
+        Serial.print("Long Hold: ");
+        lcd.cursor_off();
+        return;
+    }
+  }
+}
+
+// ***************************************************************
 // Main menu
 // ***************************************************************
-int mode = 0;
 int mainCoords[6][2] = { {0,0}, {0,1}, {0,2}, {0,3}, {12,0}, {12,3} };
 int mainMenuId = 0;
 int lastMainMenuId = 0;
@@ -551,7 +607,15 @@ reset:
             break;
         }
         break;
-
+      case BTN_LONG_HOLD:
+        if (mainMenuId == mode) {
+          numberEditorMenu();
+          goto reset;
+        } else {
+          beep(3);
+          while(decodeSwitch(PIN_PORT & SW_BYTE) != 0);
+        }
+        
     }
   }
 }
